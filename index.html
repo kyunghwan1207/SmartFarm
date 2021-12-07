@@ -1,0 +1,445 @@
+<html>
+	<head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title> 3조 잘들리시조 </title>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript">
+      </script>
+      <script type = "text/javascript" language = "javascript">
+        var mqtt;
+        var reconnectTimeout = 2000;		
+        var host="test.mosquitto.org"; // 브로커 address
+        var port=8080 // 브로커의 port number
+        //var port=8081
+
+        //Variable for store the each sensor value
+        var temp_value;
+        var humi_value;
+        var soil_value; // moisture_value
+        var light_value; // 조도 센서값 저장
+        var dust_value;
+        
+
+        //Varialbe for draw graph
+        var data_temp = [];
+        var data_humi = [];
+        var data_soil = [];
+        var data_light = [];
+        var data_dust = [];
+
+        var g_temp;
+        var g_humi;
+        var g_soil;
+        var g_light;
+        var g_dust;
+        
+        // msg for inform plant status to user on web
+        var msg_soil;
+        var msg_light;
+
+        var check_light=0;
+        var check_temp=0;
+  
+        function onFailure(message) {		    
+           console.log("Connection Attempt to Host "+host+"Failed"+"<br>");
+            // reconnect after a failure
+           setTimeout(MQTTconnect, reconnectTimeout);
+          }
+  
+        function onMessageArrived(msg){ 
+           var x = new Date(); // x-axis (current time)
+           out_msg="Message received "+msg.payloadString+"<br>";
+           out_msg=out_msg+"Topic "+msg.destinationName+"<br>";
+           console.log(out_msg); // 웹페이지상 F12에서 console 로 볼 수 있음
+
+   
+           if(msg.destinationName == "temp_hk"){
+              temp_value = msg.payloadString;
+              data_temp.push([x, temp_value]);
+              data_temp.shift();
+              g_temp.updateOptions( { 'file':data_temp } );
+              if(temp_value >= 29){
+               alert("온도가 너무 높습니다. 온도를 낮추기 위해 에어컨을 가동시키겠습니다.");
+               //console.log("온도가 너무 높습니다. 온도를 낮추기 위해 에어컨을 가동시키겠습니다.");
+               DCMON();
+              }
+              if(temp_value < 20){
+                 //alert("온도가 적당하여 에어컨을 중지하겠습니다.");
+                 console.log("온도가 적당하여 에어컨을 중지하겠습니다.");
+                 DCMOFF();
+              }
+           }
+           else if(msg.destinationName == "humi_hk"){
+              humi_value = msg.payloadString;
+              data_humi.push([x, humi_value]);
+              data_humi.shift();
+              g_humi.updateOptions( { 'file':data_humi } );
+           }
+      
+           else if(msg.destinationName == "dust_hk"){
+              dust_value = msg.payloadString;
+              data_dust.push([x, dust_value]);
+              data_dust.shift();
+              g_dust.updateOptions( { 'file':data_dust } );
+              if(dust_val > 130){
+                 alert("실내공기가 좋지 않아 환기를 시작합니다.");
+                 //console.log("실내공기가 좋지 않아 환기를 시작합니다.");
+                 //DCMON();
+              }
+              if(dust_value < 20){
+                 //alert("실내공기가 좋아 환기를 중지합니다.");
+                 console.log("실내공기가 좋아 환기를 중지합니다.");
+                 //DCMOFF();
+              }
+           }
+           else if(msg.destinationName == "soil_hk"){
+              soil_value = msg.payloadString;
+              data_soil.push([x, soil_value]);
+              data_soil.shift();
+              g_soil.updateOptions( { 'file':data_soil } );
+              if(soil_value < 1100){ // make status message each value
+                 msg_soil = "더 많은 물이 필요합니다."
+              }
+              else if(soil_value > 2200){
+                 msg_soil = "너무 많은 물이 유지되고 있습니다.(주의가 필요합니다)"
+              }
+              else {
+                 msg_soil = "충분한 물이 유지되고 있습니다."
+              }
+           }
+           else if(msg.destinationName == "light_hk"){
+              light_value = msg.payloadString;
+              data_light.push([x, light_value]);
+              data_light.shift();
+              g_light.updateOptions( { 'file':data_light } );
+              if(light_value > 2000){ // make status message each value
+                 msg_light = "너무 많은 빛이 공급되고 있습니다.(주의가 필요합니다)"
+                 // LED끄기
+                 alert("너무 많은 빛이 공급되어 LED를 조절합니다.");
+                 //console.log("너무 많은 빛이 공급되어 LED를 조절합니다.");
+                 LEDOFF();
+              }
+              else if(light_value < 1000){
+                 msg_light = "더 많은 빛이 필요합니다."
+                 // LED켜기
+                 //alert("더 많은 빛이 필요하여 LED를 추가로 켭니다.");
+                 console.log("더 많은 빛이 필요하여 LED를 추가로 켭니다.");
+                 LEDON();
+              }
+              else {
+                 msg_light = "충분한 빛이 공급되고 있습니다."
+                 
+              }
+           }
+      
+           console.log("temp_value : " + temp_value)
+           console.log("humi_value : " + humi_value)
+           console.log("dust_value : " + dust_value)
+           console.log("soil_value : " + soil_value)
+           console.log("light_value : " + light_value)            
+        }
+         function onConnect() {
+            // 연결 성공하면, subscription을 만들고 메시지를 보냄
+            console.log("onConnect/Connected "+ "<br>");
+            mqtt.subscribe("dust_hk");
+            mqtt.subscribe("temp_hk");
+            mqtt.subscribe("humi_hk");
+            mqtt.subscribe("soil_hk");
+            mqtt.subscribe("light_hk");
+       }
+       function MQTTconnect() {		// first function
+        var x = Math.floor(Math.random() * 10000); 
+        var cname="orderform-" + x; // generate random number and by using this we can make client name(=client id)
+        // create client object
+        mqtt = new Paho.MQTT.Client(host,port,cname); // creating client object
+        console.log("connecting to "+ host +" "+ port+ "<br>");
+        var options = {	
+           timeout: 3,
+           onSuccess: onConnect,
+            onFailure: onFailure,
+        };		 
+        mqtt.onMessageArrived = onMessageArrived // when message arrived call the onMessageArrived function(call back function)
+        // Connect
+        mqtt.connect(options); 
+       }
+       function soil_state_update() { // when user click the "update" button then update the value on web page
+          document.getElementById("soil_state").innerHTML = msg_soil;
+          document.getElementById("soil_val").innerHTML = soil_value;
+       }
+       function light_state_update() {
+          document.getElementById("light_state").innerHTML = msg_light;
+          document.getElementById("light_val").innerHTML = light_value;
+       }
+
+       function dust_val_update() {
+          document.getElementById("dust_val").innerHTML = dust_value;
+       }
+       
+       function temp_val_update() {
+          document.getElementById("temp_val").innerHTML = temp_value + "ºC";
+       }
+       function humi_val_update() {
+          document.getElementById("humi_val").innerHTML = humi_value + "%";
+       }
+      
+       </script>
+	</head>
+	<body>
+         <script>
+            // Call function
+            MQTTconnect();            
+        </script>
+
+
+<style>
+	img{
+		transition : transform 100ms ease-in-out, opacity 100ms ease-in-out;
+	}
+</style>		
+
+		<script src="smartFarm.js"></script>
+		
+		<center><h1>3조-폐 컨테이너를 활용한 스마트 팜 시스템</h></center>
+		<br><br>
+		<center><table border="0" cellpadding="25%" width ="100%">
+         <tr>
+
+            <td><center>
+               <h3>농작물 상태</h3><br><br>
+               <img src="img/soil.png" name="Plant"><br><br>
+               <span>토양습도 상태</span>
+               <input type="button" value="update" onclick="soil_state_update();"><br> 
+               <span>상태 : </span>
+               <span id="soil_state">_</span><br>
+               <span>값 : </span>
+               <span id="soil_val">_</span><br>
+                 
+   
+               <span>빛 세기 상태</span>
+               <input type="button" value="update" onclick="light_state_update();"><br>
+               <span>상태 : </span>
+               <span id="light_state">_</span><br>
+               <span>값 : </span>
+               <span id="light_val">_</span><br>
+               
+            </center></td>
+
+            <td><center>
+               <h3>온도</h><br><br>
+					<div style="position:relative; background:url(img/temp.png) no-repeat; width:128px;">
+               <img src="img/temp_ov.png" name="TEMPOV" style="opacity:0.5"><br><br>
+               <span id="temp_val">_</span>
+               <input type="button" value="update" onclick="temp_val_update();">   
+            </center></td>
+
+            <td><center>
+               <h3>습도</h><br><br>
+					<div style="position:relative; background:url(img/humi.png) no-repeat; width:128px;">
+					<img src="img/humi_ov.png" name="HUMIOV" style="position:relative; z-index:5; opacity:0.5;"></div><br><br>
+               <span id="humi_val">_</span>
+               <input type="button" value="update" onclick="humi_val_update();">   
+            </center></td>
+
+         </tr>
+         <tr>
+				<td><center>
+					<h3>LED</h><br><br>
+					<img src="img/led_off.png" name="LED"><br><br>
+					<input type="button" value="ON" id="LED_ON" onclick="LEDON();">
+					<input type="button" value="OFF" id="LED_OFF" onclick="LEDOFF();">
+				</center></td>
+
+				<td><center>
+					<h3>환풍기/에어컨</h><br><br>
+					<img src="img/dcm_off.png" name="DCM"><br><br>
+					<input type="button" value="ON" id="DCM_ON" onclick="DCMON();">
+               <input type="button" value="OFF" id="DCM_OFF" onclick="DCMOFF();">
+            </center></td>
+
+            <td><center>
+               <h3>먼지</h><br><br>
+               <img src="img/dust.png" name="DUST" style="transform : rotate(-90deg);"><br><br>
+               <span id="dust_val">_</span>
+               <input type="button" value="update" onclick="dust_val_update();">   
+            </center></td>
+
+			</tr>
+		</table></center>
+
+      <!-- style for graph -->
+      <style type="text/css"> 
+         #div_g_dust {
+           position: relative;
+           left: 10px;
+           right: 800px;
+           top: 40px;
+           bottom: 10px;
+         }
+         #div_g_soil {
+           position: relative;
+           left: 10px;
+           right: 10px;
+           top: 40px;
+           bottom: 10px;
+         }
+         #div_g_light {
+           position: relative;
+           left: 10px;
+           right: 10px;
+           top: 40px;
+           bottom: 10px;
+         }
+         #div_g_temp {
+           position: relative;
+           left: 10px;
+           right: 10px;
+           top: 40px;
+           bottom: 10px;
+         }
+         #div_g_humi {
+           position: relative;
+           left: 10px;
+           right: 10px;
+           top: 40px;
+           bottom: 10px;
+         }
+     </style>
+
+     <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+     <script src="dygraph-combined-dev.js"></script>
+     <script src="mqttws31.js" type="text/javascript"></script>
+     <script type="text/javascript">
+      //settings for the chart_DUST
+         $(document).ready(function() {
+         var t = new Date();
+            for (var i = 100; i >= 0; i--) {
+            var x = new Date(t.getTime() - i * 1000);
+            data_dust.push([x, 0]);
+         }
+            
+            g_dust = new Dygraph(document.getElementById("div_g_dust"), data_dust,
+                              {
+                                 drawPoints: true,
+                                 showRoller: false,
+                           drawXAxis: true,
+                                 valueRange: [0, 100],
+                                 labels: ['Time', 'Active Users']
+                              });
+         }
+      );
+      //settings for the chart_temp
+      $(document).ready(function() {
+         var t = new Date();
+            for (var i = 100; i >= 0; i--) {
+            var x = new Date(t.getTime() - i * 1000);
+            data_temp.push([x, 0]);
+         }
+            
+            g_temp = new Dygraph(document.getElementById("div_g_temp"), data_temp,
+                              {
+                                 drawPoints: true,
+                                 showRoller: false,
+                           drawXAxis: true,
+                                 //valueRange: [-500, 500],
+                                 labels: ['Time', 'Active Users']
+                              });
+         }
+      );
+         //settings for the chart_Humi
+      $(document).ready(function() {
+         var t = new Date();
+            for (var i = 100; i >= 0; i--) {
+            var x = new Date(t.getTime() - i * 1000);
+            data_humi.push([x, 0]);
+         }
+            
+            g_humi = new Dygraph(document.getElementById("div_g_humi"), data_humi,
+                              {
+                                 drawPoints: true,
+                                 showRoller: false,
+                           drawXAxis: true,
+                                 //valueRange: [-500, 500],
+                                 labels: ['Time', 'Active Users']
+                              });
+         }
+      );
+         //settings for the chart_SOilMoisture
+      $(document).ready(function() {
+         var t = new Date();
+            for (var i = 100; i >= 0; i--) {
+            var x = new Date(t.getTime() - i * 1000);
+            data_soil.push([x, 0]);
+         }
+            
+            g_soil = new Dygraph(document.getElementById("div_g_soil"), data_soil,
+                              {
+                                 drawPoints: true,
+                                 showRoller: false,
+                           drawXAxis: true,
+                                 //valueRange: [-500, 500],
+                                 labels: ['Time', 'Active Users']
+                              });
+         }
+      );
+   //settings for the chart_Light(CDS)
+      $(document).ready(function() {
+         var t = new Date();
+            for (var i = 100; i >= 0; i--) {
+            var x = new Date(t.getTime() - i * 1000);
+            data_light.push([x, 0]);
+         }
+            
+            g_light = new Dygraph(document.getElementById("div_g_light"), data_light,
+                              {
+                                 drawPoints: true,
+                                 showRoller: false,
+                           drawXAxis: true,
+                                 //valueRange: [-500, 500],
+                                 labels: ['Time', 'Active Users']
+                              });
+         }
+      );
+
+      </script>
+      <!-- Show graph each sensor value in table form-->
+      <center><table border="0" cellpadding="25%" width ="100%">
+			<tr>
+				<!-- </center></td> -->
+            <td><center>
+					
+               <h1>온도</h1>	
+            <div id="div_g_temp" ></div>
+            <td><center>
+					
+               <h1>습도</h1>	
+            <div id="div_g_humi" ></div>
+
+				</center></td>
+
+				</center></td>
+         </tr> 
+         <tr>
+				<td><center>
+					
+               <h1>토양습도</h1>	
+            <div id="div_g_soil" ></div>
+
+				</center></td>
+            <td><center>
+					
+               <h1>먼지</h1>	
+            <div id="div_g_dust" ></div>
+
+				</center></td>
+         </tr> 
+         <tr>
+				<td><center>
+					
+               <h1>빛 세기</h1>	
+            <div id="div_g_light" ></div>
+
+				</center></td>
+         
+         </tr> 
+      </table></center>
+	</body>
+</html>
